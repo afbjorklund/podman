@@ -190,12 +190,16 @@ func decompressXZ(src string, output io.Writer) error {
 	}
 	//cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	err = cmd.Start()
+	if err != nil {
+		return err
+	}
 	go func() {
 		if _, err := io.Copy(output, stdOut); err != nil {
 			logrus.Error(err)
 		}
 	}()
-	return cmd.Run()
+	return cmd.Wait()
 }
 
 func decompressEverythingElse(src string, output io.Writer) error {
