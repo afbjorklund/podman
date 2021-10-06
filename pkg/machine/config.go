@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/adrg/xdg"
 	"github.com/containers/storage/pkg/homedir"
 	"github.com/pkg/errors"
 )
@@ -115,7 +116,7 @@ func (rc RemoteConnectionType) MakeSSHURL(host, path, port, userName string) url
 func GetDataDir(vmType string) (string, error) {
 	data, err := homedir.GetDataHome()
 	if err != nil {
-		return "", err
+		data = xdg.DataHome
 	}
 	dataDir := filepath.Join(data, "containers", "podman", "machine", vmType)
 	if _, err := os.Stat(dataDir); !os.IsNotExist(err) {
@@ -130,7 +131,7 @@ func GetDataDir(vmType string) (string, error) {
 func GetConfDir(vmType string) (string, error) {
 	conf, err := homedir.GetConfigHome()
 	if err != nil {
-		return "", err
+		conf = xdg.ConfigHome
 	}
 	confDir := filepath.Join(conf, "containers", "podman", "machine", vmType)
 	if _, err := os.Stat(confDir); !os.IsNotExist(err) {
