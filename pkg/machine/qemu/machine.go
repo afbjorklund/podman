@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -87,9 +88,15 @@ func NewMachine(opts machine.InitOptions) (machine.VM, error) {
 	cmd = append(cmd, []string{"-qmp", monitor.Network + ":/" + monitor.Address + ",server=on,wait=off"}...)
 
 	// Add network
-	// Right now the mac address is hardcoded so that the host networking gives it a specific IP address.  This is
-	// why we can only run one vm at a time right now
-	cmd = append(cmd, []string{"-netdev", "socket,id=vlan,fd=3", "-device", "virtio-net-pci,netdev=vlan,mac=5a:94:ef:e4:0c:ee"}...)
+	vm.UserNetworking = runtime.GOOS != "linux" && runtime.GOOS != "darwin"
+	if !vm.UserNetworking {
+		// Right now the mac address is hardcoded so that the host networking gives it a specific IP address.
+		// This is why we can only run one vm at a time right now
+		cmd = append(cmd, []string{"-netdev", "socket,id=vlan,fd=3", "-device", "virtio-net-pci,netdev=vlan,mac=5a:94:ef:e4:0c:ee"}...)
+	} else {
+		// The user networking needs tunneling everything else over the ssh connection forwarded from the host.
+		cmd = append(cmd, []string{"-netdev", fmt.Sprintf("user,id=vlan,hostfwd=tcp::%d-:22", vm.Port), "-device", "virtio-net-pci,netdev=vlan"}...)
+	}
 	socketPath, err := getRuntimeDir()
 	if err != nil {
 		return nil, err
@@ -247,8 +254,10 @@ func (v *MachineVM) Start(name string, _ machine.StartOptions) error {
 		wait           time.Duration = time.Millisecond * 500
 	)
 
-	if err := v.startHostNetworking(); err != nil {
-		return errors.Errorf("unable to start host networking: %q", err)
+	if !v.UserNetworking {
+		if err := v.startHostNetworking(); err != nil {
+			return errors.Errorf("unable to start host networking: %q", err)
+		}
 	}
 
 	rtPath, err := getRuntimeDir()
@@ -263,34 +272,39 @@ func (v *MachineVM) Start(name string, _ machine.StartOptions) error {
 			return err
 		}
 	}
-	qemuSocketPath, _, err := v.getSocketandPid()
-	if err != nil {
-		return err
-	}
-	// If the qemusocketpath exists and the vm is off/down, we should rm
-	// it before the dial as to avoid a segv
-	if err := os.Remove(qemuSocketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		logrus.Warn(err)
-	}
-	for i := 0; i < 6; i++ {
-		qemuSocketConn, err = net.Dial("unix", qemuSocketPath)
-		if err == nil {
-			break
+	if !v.UserNetworking {
+		qemuSocketPath, _, err := v.getSocketandPid()
+		if err != nil {
+			return err
 		}
-		time.Sleep(wait)
-		wait++
-	}
-	if err != nil {
-		return err
-	}
-
-	fd, err := qemuSocketConn.(*net.UnixConn).File()
-	if err != nil {
-		return err
+		// If the qemusocketpath exists and the vm is off/down, we should rm
+		// it before the dial as to avoid a segv
+		if err := os.Remove(qemuSocketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			logrus.Warn(err)
+		}
+		for i := 0; i < 6; i++ {
+			qemuSocketConn, err = net.Dial("unix", qemuSocketPath)
+			if err == nil {
+				break
+			}
+			time.Sleep(wait)
+			wait++
+		}
+		if err != nil {
+			return err
+		}
 	}
 
 	attr := new(os.ProcAttr)
-	files := []*os.File{os.Stdin, os.Stdout, os.Stderr, fd}
+	files := []*os.File{os.Stdin, os.Stdout, os.Stderr}
+	if !v.UserNetworking {
+		fd, err := qemuSocketConn.(*net.UnixConn).File()
+		if err != nil {
+			return err
+		}
+		files = append(files, []*os.File{fd}...)
+	}
+
 	attr.Files = files
 	logrus.Debug(v.CmdLine)
 	cmd := v.CmdLine
@@ -362,38 +376,10 @@ func (v *MachineVM) Stop(name string, _ machine.StopOptions) error {
 	if _, err = qmpMonitor.Run(input); err != nil {
 		return err
 	}
-	qemuSocketFile, pidFile, err := v.getSocketandPid()
-	if err != nil {
-		return err
-	}
-	if _, err := os.Stat(pidFile); os.IsNotExist(err) {
-		logrus.Info(err)
-		return nil
-	}
-	pidString, err := ioutil.ReadFile(pidFile)
-	if err != nil {
-		return err
-	}
-	pidNum, err := strconv.Atoi(string(pidString))
-	if err != nil {
-		return err
-	}
-
-	p, err := os.FindProcess(pidNum)
-	if p == nil && err != nil {
-		return err
-	}
-	// Kill the process
-	if err := p.Kill(); err != nil {
-		return err
-	}
-	// Remove the pidfile
-	if err := os.Remove(pidFile); err != nil && !errors.Is(err, os.ErrNotExist) {
-		logrus.Warn(err)
-	}
-	// Remove socket
-	if err := os.Remove(qemuSocketFile); err != nil {
-		return err
+	if !v.UserNetworking {
+		if err := v.stopHostNetworking(); err != nil {
+			return errors.Errorf("unable to stop host networking: %q", err)
+		}
 	}
 
 	fmt.Printf("Successfully stopped machine: %s", name)
@@ -683,6 +669,44 @@ func (v *MachineVM) startHostNetworking() error {
 	}
 	_, err = os.StartProcess(cmd[0], cmd, attr)
 	return err
+}
+
+// stopHostNetworking stops the binary on the host system
+func (v *MachineVM) stopHostNetworking() error {
+	qemuSocketFile, pidFile, err := v.getSocketandPid()
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(pidFile); os.IsNotExist(err) {
+		logrus.Info(err)
+		return nil
+	}
+	pidString, err := ioutil.ReadFile(pidFile)
+	if err != nil {
+		return err
+	}
+	pidNum, err := strconv.Atoi(string(pidString))
+	if err != nil {
+		return err
+	}
+
+	p, err := os.FindProcess(pidNum)
+	if p == nil && err != nil {
+		return err
+	}
+	// Kill the process
+	if err := p.Kill(); err != nil {
+		return err
+	}
+	// Remove the pidfile
+	if err := os.Remove(pidFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+		logrus.Warn(err)
+	}
+	// Remove socket
+	if err := os.Remove(qemuSocketFile); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (v *MachineVM) getSocketandPid() (string, string, error) {

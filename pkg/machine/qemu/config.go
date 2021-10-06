@@ -23,6 +23,8 @@ type MachineVM struct {
 	Name string
 	// SSH port for user networking
 	Port int
+	// UserNetworking is whether to not start the host networking
+	UserNetworking bool
 	// QMPMonitor is the qemu monitor object for sending commands
 	QMPMonitor Monitor
 	// RemoteUsername of the vm user
