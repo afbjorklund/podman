@@ -382,7 +382,6 @@ func (v *MachineVM) Stop(name string, _ machine.StopOptions) error {
 		}
 	}
 
-	fmt.Printf("Successfully stopped machine: %s", name)
 	return nil
 }
 
