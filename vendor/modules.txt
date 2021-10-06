@@ -35,6 +35,8 @@ github.com/Microsoft/hcsshim/osversion
 github.com/VividCortex/ewma
 # github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d
 github.com/acarl005/stripansi
+# github.com/adrg/xdg v0.3.4
+github.com/adrg/xdg
 # github.com/beorn7/perks v1.0.1
 github.com/beorn7/perks/quantile
 # github.com/bits-and-blooms/bitset v1.2.0

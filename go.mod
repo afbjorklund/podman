@@ -4,6 +4,7 @@ go 1.13
 
 require (
 	github.com/BurntSushi/toml v0.4.1
+	github.com/adrg/xdg v0.3.4
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/buger/goterm v0.0.0-20181115115552-c206103e1f37
 	github.com/checkpoint-restore/checkpointctl v0.0.0-20210922093614-c31748bec9f2
