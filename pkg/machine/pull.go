@@ -178,6 +178,10 @@ func Decompress(localPath, uncompressedPath string) error {
 // Maybe extracting then renameing is a good idea here..
 // depends on xz: not pre-installed on mac, so it becomes a brew dependency
 func decompressXZ(src string, output io.Writer) error {
+	_, err := exec.LookPath("xzcat")
+	if err != nil {
+		return decompressEverythingElse(src, output)
+	}
 	cmd := exec.Command("xzcat", "-k", src)
 	//cmd := exec.Command("xz", "-d", "-k", "-v", src)
 	stdOut, err := cmd.StdoutPipe()
