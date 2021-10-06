@@ -101,12 +101,16 @@ func NewMachine(opts machine.InitOptions) (machine.VM, error) {
 	if err != nil {
 		return nil, err
 	}
-	virtualSocketPath := filepath.Join(socketPath, "podman", vm.Name+"_ready.sock")
-	// Add serial port for readiness
-	cmd = append(cmd, []string{
-		"-device", "virtio-serial",
-		"-chardev", "socket,path=" + virtualSocketPath + ",server=on,wait=off,id=" + vm.Name + "_ready",
-		"-device", "virtserialport,chardev=" + vm.Name + "_ready" + ",name=org.fedoraproject.port.0"}...)
+	if runtime.GOOS != "windows" {
+		virtualSocketPath := filepath.Join(socketPath, "podman", vm.Name+"_ready.sock")
+		// Add serial port for readiness
+		cmd = append(cmd, []string{
+			"-device", "virtio-serial",
+			"-chardev", "socket,path=" + virtualSocketPath + ",server=on,wait=off,id=" + vm.Name + "_ready",
+			"-device", "virtserialport,chardev=" + vm.Name + "_ready" + ",name=org.fedoraproject.port.0"}...)
+	} else {
+		//TODO
+	}
 	vm.CmdLine = cmd
 	return vm, nil
 }
@@ -325,21 +329,25 @@ func (v *MachineVM) Start(name string, _ machine.StartOptions) error {
 		return err
 	}
 
-	// The socket is not made until the qemu process is running so here
-	// we do a backoff waiting for it.  Once we have a conn, we break and
-	// then wait to read it.
-	for i := 0; i < 6; i++ {
-		conn, err = net.Dial("unix", filepath.Join(socketPath, "podman", v.Name+"_ready.sock"))
-		if err == nil {
-			break
+	if runtime.GOOS != "windows" {
+		// The socket is not made until the qemu process is running so here
+		// we do a backoff waiting for it.  Once we have a conn, we break and
+		// then wait to read it.
+		for i := 0; i < 6; i++ {
+			conn, err = net.Dial("unix", filepath.Join(socketPath, "podman", v.Name+"_ready.sock"))
+			if err == nil {
+				break
+			}
+			time.Sleep(wait)
+			wait++
 		}
-		time.Sleep(wait)
-		wait++
+		if err != nil {
+			return err
+		}
+		_, err = bufio.NewReader(conn).ReadString('\n')
+	} else {
+		time.Sleep(10)
 	}
-	if err != nil {
-		return err
-	}
-	_, err = bufio.NewReader(conn).ReadString('\n')
 	return err
 }
 
