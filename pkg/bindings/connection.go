@@ -16,6 +16,7 @@ import (
 	"github.com/blang/semver/v4"
 	"github.com/containers/common/pkg/ssh"
 	"github.com/containers/podman/v4/version"
+	"github.com/kevinburke/ssh_config"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/net/proxy"
 )
@@ -113,6 +114,31 @@ func NewConnectionWithIdentity(ctx context.Context, uri string, identity string,
 			port, err = strconv.Atoi(_url.Port())
 			if err != nil {
 				return nil, err
+			}
+		}
+		// ssh_config
+		alias := _url.Hostname()
+		logrus.Debugf("Alias: %s", alias)
+		cfg := ssh_config.DefaultUserSettings
+		if val := cfg.Get(alias, "User"); val != "" {
+			_url.User = url.User(val)
+			logrus.Debugf("User: %s", val)
+		}
+		if val := cfg.Get(alias, "Hostname"); val != "" {
+			uri = val
+			logrus.Debugf("Hostname: %s", val)
+		}
+		if val := cfg.Get(alias, "Port"); val != "" {
+			port, err = strconv.Atoi(val)
+			if err != nil {
+				return nil, err
+			}
+			logrus.Debugf("Port: %s", val)
+		}
+		if val := cfg.Get(alias, "IdentityFile"); val != "" {
+			if val != ssh_config.Default("IdentityFile") {
+				identity = strings.Trim(val, "\"")
+				logrus.Debugf("Identity: %s", val)
 			}
 		}
 		conn, err := ssh.Dial(&ssh.ConnectionDialOptions{
