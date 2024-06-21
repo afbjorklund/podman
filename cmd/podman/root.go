@@ -178,6 +178,12 @@ func readRemoteCliFlags(cmd *cobra.Command, podmanConfig *entities.PodmanConfig)
 		}
 	case host.Changed:
 		podmanConfig.URI = host.Value.String()
+	default:
+		// No cli options set, in case CONTAINER_CONNECTION was set to something
+		// invalid this contains the error, see setupRemoteConnection().
+		// Important so that we can show a proper useful error message but still
+		// allow the cli overwrites (https://github.com/containers/podman/pull/22997).
+		return podmanConfig.ConnectionError
 	}
 	return
 }
@@ -188,7 +194,8 @@ func readRemoteCliFlags(cmd *cobra.Command, podmanConfig *entities.PodmanConfig)
 // 2. Env variables (CONTAINER_HOST and CONTAINER_CONNECTION);
 // 3. ActiveService from containers.conf;
 // 4. RemoteURI;
-func setupRemoteConnection(podmanConfig *entities.PodmanConfig) error {
+// Returns the name of the default connection if any.
+func setupRemoteConnection(podmanConfig *entities.PodmanConfig) string {
 	conf := podmanConfig.ContainersConfDefaultsRO
 	connEnv, hostEnv, sshkeyEnv := os.Getenv("CONTAINER_CONNECTION"), os.Getenv("CONTAINER_HOST"), os.Getenv("CONTAINER_SSHKEY")
 	dest, destFound := conf.Engine.ServiceDestinations[conf.Engine.ActiveService]
@@ -199,9 +206,10 @@ func setupRemoteConnection(podmanConfig *entities.PodmanConfig) error {
 			podmanConfig.URI = ConnEnvDest.URI
 			podmanConfig.Identity = ConnEnvDest.Identity
 			podmanConfig.MachineMode = ConnEnvDest.IsMachine
-			return nil
+			return connEnv
 		}
-		return fmt.Errorf("connection %q not found", connEnv)
+		podmanConfig.ConnectionError = fmt.Errorf("connection %q not found", connEnv)
+		return connEnv
 	case hostEnv != "":
 		if sshkeyEnv != "" {
 			podmanConfig.Identity = sshkeyEnv
@@ -211,10 +219,11 @@ func setupRemoteConnection(podmanConfig *entities.PodmanConfig) error {
 		podmanConfig.URI = dest.URI
 		podmanConfig.Identity = dest.Identity
 		podmanConfig.MachineMode = dest.IsMachine
+		return conf.Engine.ActiveService
 	default:
 		podmanConfig.URI = registry.DefaultAPIAddress()
 	}
-	return nil
+	return ""
 }
 
 func persistentPreRunE(cmd *cobra.Command, args []string) error {
@@ -457,9 +466,8 @@ func stdOutHook() {
 }
 
 func rootFlags(cmd *cobra.Command, podmanConfig *entities.PodmanConfig) {
-	if err := setupRemoteConnection(podmanConfig); err != nil {
-		return
-	}
+	connectionName := setupRemoteConnection(podmanConfig)
+
 	lFlags := cmd.Flags()
 
 	sshFlagName := "ssh"
@@ -467,7 +475,7 @@ func rootFlags(cmd *cobra.Command, podmanConfig *entities.PodmanConfig) {
 	_ = cmd.RegisterFlagCompletionFunc(sshFlagName, common.AutocompleteSSH)
 
 	connectionFlagName := "connection"
-	lFlags.StringP(connectionFlagName, "c", podmanConfig.ContainersConfDefaultsRO.Engine.ActiveService, "Connection to use for remote Podman service")
+	lFlags.StringP(connectionFlagName, "c", connectionName, "Connection to use for remote Podman service (CONTAINER_CONNECTION)")
 	_ = cmd.RegisterFlagCompletionFunc(connectionFlagName, common.AutocompleteSystemConnections)
 
 	urlFlagName := "url"
