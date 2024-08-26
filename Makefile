@@ -459,6 +459,20 @@ local-cross: $(CROSS_BUILD_TARGETS) ## Cross compile podman binary for multiple 
 .PHONY: cross
 cross: local-cross
 
+# Update nix/nixpkgs.json its latest unstable commit
+.PHONY: nixpkgs
+nixpkgs:
+	@nix run \
+		-f channel:nixpkgs-unstable nix-prefetch-git -- \
+		--no-deepClone https://github.com/nixos/nixpkgs > nix/nixpkgs.json
+
+# Build statically linked binary
+.PHONY: static
+static:
+	@nix build -f nix/ --print-build-logs
+	mkdir -p ./bin
+	cp -rfp ./result/bin/* ./bin/
+
 .PHONY: completions
 completions: podman podman-remote
 	# key = shell, value = completion filename
