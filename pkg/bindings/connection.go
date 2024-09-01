@@ -1,6 +1,7 @@
 package bindings
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -150,6 +151,24 @@ func NewConnectionWithIdentity(ctx context.Context, uri string, identity string,
 		}, "golang")
 		if err != nil {
 			return nil, newConnectError(err)
+		}
+		// socket path
+		if _url.Path == "" {
+			session, err := conn.NewSession()
+			if err != nil {
+				return nil, err
+			}
+			defer session.Close()
+
+			var b bytes.Buffer
+			session.Stdout = &b
+			if err := session.Run(
+				"podman info --format '{{.Host.RemoteSocket.Path}}'"); err != nil {
+				return nil, err
+			}
+			val := strings.TrimSuffix(b.String(), "\n")
+			_url.Path = val
+			logrus.Debugf("Path: %s", val)
 		}
 		connection = Connection{URI: _url}
 		connection.Client = &http.Client{
