@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/user"
 	"strconv"
 	"strings"
 	"time"
@@ -110,6 +111,14 @@ func NewConnectionWithIdentity(ctx context.Context, uri string, identity string,
 	var connection Connection
 	switch _url.Scheme {
 	case "ssh":
+		userinfo := _url.User
+		if _url.User == nil {
+			u, err := user.Current()
+			if err != nil {
+				return nil, err
+			}
+			userinfo = url.User(u.Username)
+		}
 		port := 22
 		if _url.Port() != "" {
 			port, err = strconv.Atoi(_url.Port())
@@ -122,7 +131,7 @@ func NewConnectionWithIdentity(ctx context.Context, uri string, identity string,
 		logrus.Debugf("Alias: %s", alias)
 		cfg := ssh_config.DefaultUserSettings
 		if val := cfg.Get(alias, "User"); val != "" {
-			_url.User = url.User(val)
+			userinfo = url.User(val)
 			logrus.Debugf("User: %s", val)
 		}
 		if val := cfg.Get(alias, "Hostname"); val != "" {
@@ -145,7 +154,7 @@ func NewConnectionWithIdentity(ctx context.Context, uri string, identity string,
 		conn, err := ssh.Dial(&ssh.ConnectionDialOptions{
 			Host:                        uri,
 			Identity:                    identity,
-			User:                        _url.User,
+			User:                        userinfo,
 			Port:                        port,
 			InsecureIsMachineConnection: machine,
 		}, "golang")
