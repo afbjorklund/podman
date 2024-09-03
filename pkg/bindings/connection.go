@@ -139,11 +139,13 @@ func NewConnectionWithIdentity(ctx context.Context, uri string, identity string,
 			logrus.Debugf("Hostname: %s", val)
 		}
 		if val := cfg.Get(alias, "Port"); val != "" {
-			port, err = strconv.Atoi(val)
-			if err != nil {
-				return nil, err
+			if val != ssh_config.Default("Port") {
+				port, err = strconv.Atoi(val)
+				if err != nil {
+					return nil, err
+				}
+				logrus.Debugf("Port: %s", val)
 			}
-			logrus.Debugf("Port: %s", val)
 		}
 		if val := cfg.Get(alias, "IdentityFile"); val != "" {
 			if val != ssh_config.Default("IdentityFile") {
